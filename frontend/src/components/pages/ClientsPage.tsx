@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { ChevronLeft, ChevronRight, Upload, Search, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, Upload, Search, ChevronDown, Filter, ArrowDown, ArrowUp } from "lucide-react";
 import { exportCSV } from "../../utils/exportCSV";
 import api from "../../services/api";
 import { useClientes } from "../../hooks/useClientes";
@@ -28,29 +28,66 @@ function getAvatarColor(nome: string): string {
   return colors[(nome?.charCodeAt(0) ?? 0) % colors.length];
 }
 
+function formatOrigem(origem?: string): string {
+  switch (origem?.toLowerCase()) {
+    case "indicacao": return "Indicação";
+    case "web": return "Web";
+    case "app": return "App";
+    default: return "Indisponível";
+  }
+}
+
 function Clients() {
   const [busca, setBusca] = useState("");
-  const [status, setStatus] = useState("");
+  const [segmentos, setSegmentos] = useState<string[]>([]);
+  const [origens, setOrigens] = useState<string[]>([]);
+  const [minGasto, setMinGasto] = useState("");
+  const [maxGasto, setMaxGasto] = useState("");
+  const [minTicket, setMinTicket] = useState("");
+  const [maxTicket, setMaxTicket] = useState("");
+  const [ordenacao, setOrdenacao] = useState("");
+  
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [page, setPage] = useState(1);
   const limit = 10;
   const navigate = useNavigate();
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const { clientes, total, loading } = useClientes({ busca, status, page, limit });
+  const { clientes, total, loading } = useClientes({ 
+    busca, segmentos, origens, minGasto, maxGasto, minTicket, maxTicket, ordenacao, page, limit 
+  });
 
   const handleBusca = (e: React.ChangeEvent<HTMLInputElement>) => {
     setBusca(e.target.value);
     setPage(1);
   };
-  const handleStatus = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setStatus(e.target.value);
+
+  const toggleArrayItem = (item: string, list: string[], setList: (arr: string[]) => void) => {
+    setList(list.includes(item) ? list.filter(i => i !== item) : [...list, item]);
     setPage(1);
   };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setFiltrosAbertos(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleExportCSV = async () => {
     try {
       const params = new URLSearchParams();
       if (busca) params.append("busca", busca);
-      if (status) params.append("status", status);
+      if (segmentos.length > 0) segmentos.forEach(s => params.append("segmentos", s));
+      if (origens.length > 0) origens.forEach(o => params.append("origens", o));
+      if (minGasto) params.append("min_gasto", minGasto);
+      if (maxGasto) params.append("max_gasto", maxGasto);
+      if (minTicket) params.append("min_ticket", minTicket);
+      if (maxTicket) params.append("max_ticket", maxTicket);
+      if (ordenacao) params.append("ordenacao", ordenacao);
       params.append("limit", "999999");
       params.append("page", "1");
 
@@ -100,20 +137,159 @@ function Clients() {
               onChange={handleBusca}
             />
           </div>
-          <div className="relative flex-none" style={{ width: "200px" }}>
-            <select
-              className="w-full border border-gray-200 px-5 py-2.5 bg-white text-sm text-gray-600 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 cursor-pointer shadow-sm transition-all appearance-none"
+          <div className="relative" ref={menuRef}>
+            <button
+              onClick={() => setFiltrosAbertos(!filtrosAbertos)}
+              className="flex items-center gap-2 border border-gray-200 px-5 py-2.5 bg-white text-sm font-medium text-gray-600 hover:bg-gray-50 focus:outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 cursor-pointer shadow-sm transition-all"
               style={{ borderRadius: "28px" }}
-              value={status}
-              onChange={handleStatus}
             >
-              <option value="">Segmento</option>
-              <option value="Premium">Premium</option>
-              <option value="Inativo">Inativo</option>
-              <option value="Recorrente">Recorrente</option>
-              <option value="Novo">Novo</option>
-            </select>
-            <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+              <Filter size={16} />
+              Filtros
+              <ChevronDown size={14} className={`transition-transform ${filtrosAbertos ? "rotate-180" : ""}`} />
+            </button>
+
+            {filtrosAbertos && (
+              <div className="absolute right-0 mt-2 w-[760px] bg-white border border-gray-100 shadow-xl rounded-2xl z-50 p-6 flex flex-col gap-6">
+                
+                <div className="flex gap-6">
+                  {/* Intervalos */}
+                  <div className="flex-[1.2] flex flex-col gap-5">
+                    <div>
+                      <span className="block text-xs font-semibold text-gray-500 uppercase mb-3">Intervalo de Gasto</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-sm font-medium">R$</span>
+                        <input 
+                          type="number" 
+                          placeholder="0" 
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={minGasto}
+                          onChange={(e) => { setMinGasto(e.target.value); setPage(1); }}
+                        />
+                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-500 text-sm font-medium">R$</span>
+                        <input 
+                          type="number" 
+                          placeholder="1000" 
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={maxGasto}
+                          onChange={(e) => { setMaxGasto(e.target.value); setPage(1); }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <span className="block text-xs font-semibold text-gray-500 uppercase mb-3">Intervalo de Ticket Médio</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500 text-sm font-medium">R$</span>
+                        <input 
+                          type="number" 
+                          placeholder="0" 
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={minTicket}
+                          onChange={(e) => { setMinTicket(e.target.value); setPage(1); }}
+                        />
+                        <span className="text-gray-400">-</span>
+                        <span className="text-gray-500 text-sm font-medium">R$</span>
+                        <input 
+                          type="number" 
+                          placeholder="1000" 
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 focus:outline-none focus:border-blue-400 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          value={maxTicket}
+                          onChange={(e) => { setMaxTicket(e.target.value); setPage(1); }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Listas Checkboxes */}
+                  <div className="w-[120px]">
+                    <span className="block text-xs font-semibold text-gray-500 uppercase mb-3">Origem</span>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { value: "web", label: "Web" },
+                        { value: "app", label: "App" },
+                        { value: "indicacao", label: "Indicação" }
+                      ].map(origem => (
+                        <label key={origem.value} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" 
+                            checked={origens.includes(origem.value)}
+                            onChange={() => toggleArrayItem(origem.value, origens, setOrigens)}
+                          />
+                          <span className="text-sm text-gray-700">{origem.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="w-[120px]">
+                    <span className="block text-xs font-semibold text-gray-500 uppercase mb-3">Segmento</span>
+                    <div className="flex flex-col gap-2">
+                      {["Premium", "Inativo", "Recorrente", "Novo"].map(seg => (
+                        <label key={seg} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="checkbox" 
+                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                            checked={segmentos.includes(seg)}
+                            onChange={() => toggleArrayItem(seg, segmentos, setSegmentos)}
+                          />
+                          <span className="text-sm text-gray-700">{seg}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Ordenação */}
+                  <div className="w-[160px]">
+                    <span className="block text-xs font-semibold text-gray-500 uppercase mb-3">Ordenação</span>
+                    <div className="flex flex-col gap-2">
+                      {[
+                        { value: "", label: "Padrão" },
+                        { value: "maior_receita", label: "Receita: Maior", dir: "down" },
+                        { value: "menor_receita", label: "Receita: Menor", dir: "up" },
+                        { value: "maior_ticket", label: "Ticket: Maior", dir: "down" },
+                        { value: "menor_ticket", label: "Ticket: Menor", dir: "up" },
+                        { value: "maior_pedidos", label: "Pedidos: Maior", dir: "down" },
+                        { value: "menor_pedidos", label: "Pedidos: Menor", dir: "up" },
+                      ].map(ord => (
+                        <label key={ord.value} className="flex items-center gap-2 cursor-pointer">
+                          <input 
+                            type="radio" 
+                            name="ordenacao"
+                            className="border-gray-300 text-blue-600 focus:ring-blue-500"
+                            checked={ordenacao === ord.value}
+                            onChange={() => { setOrdenacao(ord.value); setPage(1); }}
+                          />
+                          <span className="flex items-center gap-1 text-sm text-gray-700">
+                            {ord.label}
+                            {ord.dir === "down" && <ArrowDown size={14} className="text-gray-400" />}
+                            {ord.dir === "up" && <ArrowUp size={14} className="text-gray-400" />}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-start -mt-2">
+                  <button 
+                    onClick={() => {
+                      setSegmentos([]);
+                      setOrigens([]);
+                      setMinGasto("");
+                      setMaxGasto("");
+                      setMinTicket("");
+                      setMaxTicket("");
+                      setOrdenacao("");
+                      setPage(1);
+                    }}
+                    className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium rounded-lg transition-colors cursor-pointer"
+                  >
+                    Limpar
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -126,6 +302,7 @@ function Clients() {
                 <tr className="border-b border-gray-100 bg-blue-50">
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-800 uppercase tracking-widest">Cliente</th>
                   <th className="px-6 py-4 text-left text-xs font-semibold text-gray-800 uppercase tracking-widest">Segmento</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-800 uppercase tracking-widest">Origem</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800 uppercase tracking-widest">Pedidos</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800 uppercase tracking-widest">LTV</th>
                   <th className="px-6 py-4 text-center text-xs font-semibold text-gray-800 uppercase tracking-widest">Ticket Médio</th>
@@ -155,6 +332,7 @@ function Clients() {
                         {c.segmento_cliente}
                       </span>
                     </td>
+                    <td className="px-6 py-4 text-sm text-gray-700 font-medium">{formatOrigem(c.origem)}</td>
                     <td className="px-6 py-4 text-sm text-gray-700 text-center">{c.total_compras}</td>
                     <td className="px-6 py-4 text-sm text-center font-semibold text-blue-600">
                       R$ {c.receita_total_cliente?.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
@@ -167,7 +345,7 @@ function Clients() {
                 ))}
                 {clientes.length === 0 && (
                   <tr>
-                    <td colSpan={6} className="text-center py-16 text-gray-400 text-sm">
+                    <td colSpan={7} className="text-center py-16 text-gray-400 text-sm">
                       Nenhum cliente encontrado.
                     </td>
                   </tr>

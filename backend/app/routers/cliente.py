@@ -1,10 +1,10 @@
-from typing import List
+from typing import List, Optional
 from uuid import uuid4
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, desc, asc
 
 from app.database import get_db
 from app.models.cliente import Cliente
@@ -14,14 +14,7 @@ from app.models.pedido import Pedido
 
 router = APIRouter(prefix="/clientes", tags=["Cliente"])
 
-@router.get("/count")
-def contar_clientes(
-    busca: str = None,
-    status: str = None,
-    db: Session = Depends(get_db)
-):
-    query = db.query(func.count(Cliente.id_cliente))
-
+def apply_filtros_clientes(query, busca, status, segmentos, origens, min_gasto, max_gasto, min_ticket, max_ticket):
     if busca:
         query = query.filter(
             (Cliente.nome.ilike(f"%{busca}%")) |
@@ -31,35 +24,76 @@ def contar_clientes(
 
     if status:
         query = query.filter(Cliente.segmento_cliente == status)
+        
+    if segmentos:
+        query = query.filter(Cliente.segmento_cliente.in_(segmentos))
 
+    if origens:
+        query = query.filter(Cliente.origem.in_(origens))
+        
+    if min_gasto is not None:
+        query = query.filter(Cliente.receita_total_cliente >= min_gasto)
+    if max_gasto is not None:
+        query = query.filter(Cliente.receita_total_cliente <= max_gasto)
+        
+    if min_ticket is not None:
+        query = query.filter(Cliente.ticket_medio >= min_ticket)
+    if max_ticket is not None:
+        query = query.filter(Cliente.ticket_medio <= max_ticket)
+        
+    return query
+
+@router.get("/count")
+def contar_clientes(
+    busca: str = None,
+    status: str = None,
+    segmentos: List[str] = Query(None),
+    origens: List[str] = Query(None),
+    min_gasto: float = None,
+    max_gasto: float = None,
+    min_ticket: float = None,
+    max_ticket: float = None,
+    db: Session = Depends(get_db)
+):
+    query = db.query(func.count(Cliente.id_cliente))
+    query = apply_filtros_clientes(query, busca, status, segmentos, origens, min_gasto, max_gasto, min_ticket, max_ticket)
     return {"total": query.scalar()}
 
 @router.get("/", response_model=list[ClienteSchema])
 def listar_clientes(
     busca: str = None,
     status: str = None,
-    categoria: str = None,
+    segmentos: List[str] = Query(None),
+    origens: List[str] = Query(None),
+    min_gasto: float = None,
+    max_gasto: float = None,
+    min_ticket: float = None,
+    max_ticket: float = None,
+    ordenacao: str = None,
     page: int = 1,
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
     query = db.query(Cliente)
+    query = apply_filtros_clientes(query, busca, status, segmentos, origens, min_gasto, max_gasto, min_ticket, max_ticket)
 
-    if busca:
-        query = query.filter(
-            (Cliente.nome.ilike(f"%{busca}%")) |
-            (Cliente.sobrenome.ilike(f"%{busca}%")) |
-            (Cliente.email.ilike(f"%{busca}%"))
-        )
-
-    if status:
-        query = query.filter(Cliente.segmento_cliente == status)
-
-    if categoria:
-        query = query.filter(Cliente.categoria_preferida == categoria)
+    if ordenacao == "maior_receita":
+        query = query.order_by(desc(Cliente.receita_total_cliente))
+    elif ordenacao == "menor_receita":
+        query = query.order_by(asc(Cliente.receita_total_cliente))
+    elif ordenacao == "maior_ticket":
+        query = query.order_by(desc(Cliente.ticket_medio))
+    elif ordenacao == "menor_ticket":
+        query = query.order_by(asc(Cliente.ticket_medio))
+    elif ordenacao == "maior_pedidos":
+        query = query.order_by(desc(Cliente.total_compras))
+    elif ordenacao == "menor_pedidos":
+        query = query.order_by(asc(Cliente.total_compras))
+    else:
+        query = query.order_by(Cliente.id_cliente)
 
     offset = (page - 1) * limit
-    return query.order_by(Cliente.id_cliente).offset(offset).limit(limit).all()
+    return query.offset(offset).limit(limit).all()
 
 @router.get("/{cliente_id}", response_model=ClienteSchema)
 def obter_perfil_cliente(cliente_id: str, db: Session = Depends(get_db)):

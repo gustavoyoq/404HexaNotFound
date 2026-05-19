@@ -15,4 +15,5 @@ export interface Cliente {
   estado?: string;
   categoria_preferida?: string;
   produto_mais_comprado?: string;
+  origem?: string;
 }
